@@ -242,4 +242,4 @@ def trigger_script():
         return jsonify({"error": error_msg}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=9852, debug=True)
+    app.run()
