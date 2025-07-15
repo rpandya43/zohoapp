@@ -7,54 +7,117 @@ import datetime
 
 app = Flask(__name__)
 
+# Zoho CRM API Configuration
+ZOHO_CONFIG = {
+    'client_id': '1000.WE5EP9UR6A7UIRWI916QV6254LU94G',
+    'client_secret': '048691d4c42f1e1ac99ba1738f1878a4eb7a15040e',
+    'refresh_token': '1000.1f5e1853261e7f03aa04da2a1e16a87c.45e726b663cc2117db19906cd4b2f4cc',
+    'base_url': 'https://www.zohoapis.in/crm/v2/',
+    'accounts_url': 'https://accounts.zoho.in'
+}
+
+def get_zoho_access_token():
+    """Get fresh access token using refresh token"""
+    try:
+        token_url = f"{ZOHO_CONFIG['accounts_url']}/oauth/v2/token"
+        
+        data = {
+            'refresh_token': ZOHO_CONFIG['refresh_token'],
+            'client_id': ZOHO_CONFIG['client_id'],
+            'client_secret': ZOHO_CONFIG['client_secret'],
+            'grant_type': 'refresh_token'
+        }
+        
+        response = requests.post(token_url, data=data)
+        
+        if response.status_code == 200:
+            token_data = response.json()
+            return token_data.get('access_token')
+        else:
+            print(f"Failed to get access token: {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"Error getting access token: {str(e)}")
+        return None
+
+def update_deal_in_zoho(deal_id, sharepoint_url):
+    """Update deal in Zoho CRM with SharePoint URL"""
+    try:
+        access_token = get_zoho_access_token()
+        if not access_token:
+            return False
+            
+        # Zoho CRM API endpoint for updating deals
+        update_url = f"{ZOHO_CONFIG['base_url']}Deals/{deal_id}"
+        
+        headers = {
+            'Authorization': f'Zoho-oauthtoken {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Update data - using your Sharepoint_URL field
+        data = {
+            "data": [
+                {
+                    "Sharepoint_URL": sharepoint_url
+                }
+            ]
+        }
+        
+        response = requests.put(update_url, headers=headers, json=data)
+        
+        if response.status_code == 200:
+            print(f"Successfully updated deal {deal_id} with SharePoint URL")
+            return True
+        else:
+            print(f"Failed to update deal: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"Error updating deal in Zoho: {str(e)}")
+        return False
+
+@app.route('/callback', methods=['GET'])
+def oauth_callback():
+    """Handle OAuth callback from Zoho"""
+    code = request.args.get('code')
+    error = request.args.get('error')
+    
+    if error:
+        return f"<h1>Authorization Error</h1><p>{error}</p>", 400
+    
+    if code:
+        return f"""
+        <h1>Authorization Successful!</h1>
+        <p><strong>Your authorization code is:</strong></p>
+        <code style="background: #f0f0f0; padding: 10px; display: block; margin: 10px 0;">{code}</code>
+        <p>Copy this code and paste it into your token generator script.</p>
+        """
+    
+    return "<h1>No authorization code received</h1>", 400
+
+@app.route('/test-zoho', methods=['GET'])
+def test_zoho():
+    """Test Zoho CRM API connection"""
+    access_token = get_zoho_access_token()
+    if access_token:
+        return jsonify({"message": "Zoho API connection successful!", "token": access_token[:20] + "..."}), 200
+    else:
+        return jsonify({"error": "Failed to connect to Zoho API"}), 500
+
 @app.route('/test', methods=['GET', 'POST'])
-def test_endpoint():
-    print('=' * 40)
-    print('TEST ENDPOINT HIT!')
-    print('=' * 40)
-    print(f'Method: {request.method}')
-    print(f'Headers: {dict(request.headers)}')
-    print(f'Body: {request.get_data()}')
-    return jsonify({"status": "Server is working!", "method": request.method}), 200
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "Server is running"}), 200
-
-@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE'])
-@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
-def catch_all(path):
-    print('=' * 60)
-    print(f'CATCH-ALL ROUTE HIT: /{path}')
-    print('=' * 60)
-    print(f'Method: {request.method}')
-    print(f'Headers: {dict(request.headers)}')
-    print(f'Body: {request.get_data()}')
-    return jsonify({"message": f"Received {request.method} request to /{path}"}), 200
+def test():
+    return jsonify({"message": "Server is working!", "method": request.method}), 200
 
 @app.route('/trigger-script', methods=['POST'])
 def trigger_script():
     try:
-        print('=' * 60)
-        print('INCOMING REQUEST RECEIVED!')
-        print('=' * 60)
+        print('=== WEBHOOK RECEIVED ===')
         print(f'Method: {request.method}')
-        print(f'URL: {request.url}')
-        print(f'Remote Address: {request.remote_addr}')
-        print(f'Content Type: {request.content_type}')
-        print(f'Content Length: {request.content_length}')
-        print()
-        
-        print('ALL HEADERS:')
-        for header_name, header_value in request.headers:
-            print(f'  {header_name}: {header_value}')
-        print()
-        
-        print('RAW BODY:')
-        raw_body = request.get_data()
-        print(f'  Body length: {len(raw_body)}')
-        print(f'  Body content: {raw_body}')
-        print()
+        print(f'Headers: {dict(request.headers)}')
+        print(f'Body: {request.get_data()}')
+        print('========================')
         
         print('Running Zoho CRM Deal Processing...')
 
@@ -201,6 +264,17 @@ def trigger_script():
                 else:
                     print(f"  ✗ Failed to create subfolder: {subfolder} - Status: {subfolder_response.status_code}")
 
+            # Update deal in Zoho CRM with SharePoint URL
+            print(f"Step 7 - Updating deal {deal_id} in Zoho CRM...")
+            sleep(2)  # Wait a moment for folder creation to complete
+            
+            zoho_update_success = update_deal_in_zoho(deal_id, access_link)
+            
+            if zoho_update_success:
+                print(f"✓ Successfully updated Zoho CRM deal with SharePoint URL")
+            else:
+                print(f"✗ Failed to update Zoho CRM deal - but folder was created successfully")
+
             print()
             print("=" * 60)
             print("DEAL PROCESSING COMPLETED SUCCESSFULLY!")
@@ -242,4 +316,4 @@ def trigger_script():
         return jsonify({"error": error_msg}), 500
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host='0.0.0.0', port=9852, debug=True)
